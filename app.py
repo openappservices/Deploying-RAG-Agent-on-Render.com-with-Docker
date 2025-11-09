@@ -138,6 +138,9 @@ ASSISTANT:"""
     except Exception as e:
         return f"⚠️ Failed to generate response: {str(e)}"
 
+gemini_api_key = GEMINI_API_KEY
+supabase_url = SUPABASE_URL
+supabase_key = SUPABASE_KEY
 
 # Main UI
 st.title("📚 Memory RAG Agent with Gemini + Supabase")
