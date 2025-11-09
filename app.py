@@ -2,6 +2,7 @@ import streamlit as st
 import google.generativeai as genai
 from supabase import create_client, Client
 import os
+from typing import List, Dict
 
 # Set page
 st.set_page_config(page_title="RAG Agent", page_icon="🤖", layout="wide")
