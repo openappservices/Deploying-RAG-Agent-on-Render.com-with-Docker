@@ -179,7 +179,7 @@ else:
                     documents = fetch_data_from_supabase(supabase_client, table_name)
                     
                     if documents:
-                        st.info(f"📊 Retrieved {len(documents)} documents from database")
+                        #st.info(f"📊 Retrieved {len(documents)} documents from database")
                         
                         # Retrieve relevant context using simple keyword matching
                         context = simple_keyword_match(prompt, documents)
