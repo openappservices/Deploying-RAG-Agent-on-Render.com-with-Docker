@@ -61,7 +61,7 @@ def initialize_clients(_gemini_key, _supabase_url, _supabase_key):
             raise ValueError("Gemini API key is empty or not provided")
         
         genai.configure(api_key=_gemini_key.strip())
-        model = genai.GenerativeModel('gemini-1.5-flash')
+        model = genai.GenerativeModel('gemini-2.5-flash')
         
         # Test the model
         try:
