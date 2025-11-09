@@ -79,10 +79,7 @@ def initialize_clients(_gemini_key, _supabase_url, _supabase_key):
         st.success("✅ Supabase connected successfully!")
         
         return model, supabase
-    except Exception as e:
-        st.error(f"❌ Error initializing clients: {str(e)}")
-        st.error(f"Error type: {type(e).__name__}")
-        return None, None
+    
 
 def fetch_data_from_supabase(supabase: Client, table: str, query: str = None) -> List[Dict]:
     """Fetch data from Supabase table"""
@@ -193,8 +190,8 @@ else:
                         st.markdown(response)
                         
                         # Show retrieved context in expander
-                        with st.expander("View Retrieved Context"):
-                            st.text(context)
+                       # with st.expander("View Retrieved Context"):
+                        #    st.text(context)
                     else:
                         response = "No documents found in the database. Please check your table name and ensure it contains data."
                         st.markdown(response)
