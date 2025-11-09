@@ -2,208 +2,170 @@ import streamlit as st
 import google.generativeai as genai
 from supabase import create_client, Client
 import os
-from typing import List, Dict
 
-# Configuration
+# Set page
 st.set_page_config(page_title="RAG Agent", page_icon="🤖", layout="wide")
 
-# Initialize session state
+# Load credentials ONLY from environment variables
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+TABLE_NAME = os.getenv("TABLE_NAME", "documents")
+
 if 'messages' not in st.session_state:
     st.session_state.messages = []
 
-# Sidebar for API keys and configuration
+# ✅ Sidebar - no sensitive fields shown
 with st.sidebar:
-    st.title("⚙️ Configuration")
-    
-    # Try to get from environment variables first, then allow manual input
-    gemini_api_key = st.text_input(
-        "Gemini API Key", 
-        value=os.getenv("GEMINI_API_KEY", ""),
-        type="password", 
-        key="gemini_key"
-    )
-    supabase_url = st.text_input(
-        "Supabase URL", 
-        value=os.getenv("SUPABASE_URL", ""),
-        key="supabase_url"
-    )
-    supabase_key = st.text_input(
-        "Supabase Key", 
-        value=os.getenv("SUPABASE_KEY", ""),
-        type="password", 
-        key="supabase_key"
-    )
-    table_name = st.text_input(
-        "Table Name", 
-        value=os.getenv("TABLE_NAME", "documents"),
-        key="table_name"
-    )
-    
-    st.divider()
-    
-    if st.button("Clear Chat History"):
+    st.title("⚙️ Settings")
+    table_name = st.text_input("Table Name", value=TABLE_NAME)
+    st.slider("Memory length", 3, 12, 6, key="memory_length")
+
+    if st.button("❌ Clear Chat History"):
         st.session_state.messages = []
         st.rerun()
 
-# Initialize clients
+
+@st.cache_resource
+def initialize_clients():
+    if not GEMINI_API_KEY:
+        st.error("❌ Missing GEMINI_API_KEY environment variable")
+        return None, None
+
+    if not SUPABASE_URL or not SUPABASE_KEY:
+        st.error("❌ Missing Supabase environment variables")
+        return None, None
+
+    genai.configure(api_key=GEMINI_API_KEY.strip())
+    model = genai.GenerativeModel("gemini-2.5-flash")
+    supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+    st.success("✅ Backend services connected")
+    return model, supabase
+
+
+# ✅ Main App
+st.title("📚 Memory RAG Agent (Secured Keys ✅)")
+
+model, supabase_client = initialize_clients()
+
+if not model or not supabase_client:
+    st.warning("""
+    ⚠️ Please set these in Render environment variables:
+
+    - GEMINI_API_KEY
+    - SUPABASE_URL
+    - SUPABASE_KEY
+    - TABLE_NAME (optional)
+    """)
+    st.stop()
+
+# ✅ Show chat history
+for m in st.session_state.messages:
+    with st.chat_message(m["role"]):
+        st.markdown(m["content"])
+
+
+
+
+# Client initialization
 @st.cache_resource
 def initialize_clients(_gemini_key, _supabase_url, _supabase_key):
-    """Initialize Gemini and Supabase clients"""
     try:
-        # Debug: Show if keys are present (not the actual keys)
-        st.info(f"🔑 Gemini Key present: {bool(_gemini_key and len(_gemini_key) > 0)}")
-        st.info(f"🔑 Gemini Key length: {len(_gemini_key) if _gemini_key else 0}")
-        st.info(f"🔑 Supabase URL present: {bool(_supabase_url and len(_supabase_url) > 0)}")
-        st.info(f"🔑 Supabase Key present: {bool(_supabase_key and len(_supabase_key) > 0)}")
-        
-        # Configure Gemini
-        if not _gemini_key or len(_gemini_key.strip()) == 0:
-            raise ValueError("Gemini API key is empty or not provided")
-        
-        genai.configure(api_key=_gemini_key.strip())
-        model = genai.GenerativeModel('gemini-2.5-flash')
-        
-        # Test the model
-        try:
-            test_response = model.generate_content("Hello")
-            st.success("✅ Gemini API connected successfully!")
-        except Exception as gemini_error:
-            st.error(f"Gemini API test failed: {str(gemini_error)}")
-            raise
-        
-        # Initialize Supabase
-        if not _supabase_url or not _supabase_key:
-            raise ValueError("Supabase credentials are missing")
-            
-        supabase: Client = create_client(_supabase_url.strip(), _supabase_key.strip())
-        st.success("✅ Supabase connected successfully!")
-        
-        return model, supabase
-    
+        if not _gemini_key:
+            raise ValueError("Gemini API key missing")
 
-def fetch_data_from_supabase(supabase: Client, table: str, query: str = None) -> List[Dict]:
-    """Fetch data from Supabase table"""
-    try:
-        if query:
-            # If you have a search query, you can filter
-            response = supabase.table(table).select("*").execute()
-        else:
-            response = supabase.table(table).select("*").execute()
-        
-        return response.data
+        genai.configure(api_key=_gemini_key.strip())
+        model = genai.GenerativeModel("gemini-2.5-flash")
+
+        if not _supabase_url or not _supabase_key:
+            raise ValueError("Supabase credentials missing")
+
+        supabase = create_client(_supabase_url, _supabase_key)
+        return model, supabase
+
     except Exception as e:
-        st.error(f"Error fetching data: {str(e)}")
+        st.error(f"❌ Client initialization failed: {str(e)}")
+        return None, None
+
+
+def fetch_documents(supabase: Client, table: str) -> List[Dict]:
+    try:
+        response = supabase.table(table).select("content").execute()
+        return response.data or []
+    except Exception as e:
+        st.error(f"Database error: {str(e)}")
         return []
 
-def simple_keyword_match(query: str, documents: List[Dict], top_k: int = 5) -> str:
-    """Simple keyword matching without embeddings (memory efficient)"""
-    if not documents:
-        return "No documents found in the database."
-    
-    query_words = set(query.lower().split())
-    scored_docs = []
-    
-    for doc in documents:
-        # Try common field names
-        text = doc.get('content') or doc.get('text') or doc.get('description') or str(doc)
-        text_lower = text.lower()
-        
-        # Count matching words
-        score = sum(1 for word in query_words if word in text_lower)
-        
+
+def retrieve_context(query: str, docs: List[Dict], top_k: int = 5) -> str:
+    words = set(query.lower().split())
+    ranked = []
+
+    for d in docs:
+        c = d.get("content", "").lower()
+        score = sum(1 for w in words if w in c)
         if score > 0:
-            scored_docs.append((score, text))
-    
-    # Sort by score and get top k
-    scored_docs.sort(reverse=True, key=lambda x: x[0])
-    top_docs = [text for _, text in scored_docs[:top_k]]
-    
-    return "\n\n".join(top_docs) if top_docs else "No relevant documents found."
+            ranked.append((score, d["content"]))
 
-def generate_response(model, query: str, context: str) -> str:
-    """Generate response using Gemini with retrieved context"""
-    prompt = f"""You are a helpful AI assistant. Use the following context from the database to answer the user's question. 
-If the context doesn't contain relevant information, say so and provide a general answer if possible.
+    ranked.sort(reverse=True, key=lambda x: x[0])
+    top = [t for _, t in ranked[:top_k]]
+    return "\n\n".join(top) if top else "No relevant documents found."
 
-Context from database:
+
+def generate_chat_response(model, query: str, context: str, history: List[Dict]) -> str:
+    last_messages = history[-st.session_state.memory_length:]
+    conversation_block = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in last_messages])
+
+    prompt = f"""
+You are a helpful AI assistant with memory and retrieval. Always use:
+1️⃣ The conversation history  
+2️⃣ Retrieved database context  
+
+Conversation history:
+{conversation_block}
+
+Retrieved Context:
 {context}
 
-User Question: {query}
+USER: {query}
+ASSISTANT:"""
 
-Answer:"""
-    
     try:
-        response = model.generate_content([prompt])
+        response = model.generate_content(prompt)
         return response.text
     except Exception as e:
-        return f"Error generating response: {str(e)}"
+        return f"⚠️ Failed to generate response: {str(e)}"
+
 
 # Main UI
-st.title("🤖 RAG Agent with Gemini & Supabase")
-st.markdown("Ask questions and get answers based on your Supabase database!")
+st.title("📚 Memory RAG Agent with Gemini + Supabase")
 
-# Check if all credentials are provided
 if not all([gemini_api_key, supabase_url, supabase_key]):
-    st.warning("⚠️ Please provide all credentials in the sidebar to start.")
-    st.info("""
-    **Setup Instructions:**
-    1. Enter your Google Gemini API key
-    2. Enter your Supabase URL and API key
-    3. Specify the table name containing your documents
-    4. Make sure your table has a text/content column with the data to search
-    """)
+    st.warning("Enter API keys to begin…")
 else:
-    # Initialize clients
-    gemini_model, supabase_client = initialize_clients(gemini_api_key, supabase_url, supabase_key)
-    
-    if gemini_model and supabase_client:
-        
-        # Display chat messages
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-        
-        # Chat input
-        if prompt := st.chat_input("Ask me anything about your data..."):
-            # Add user message to chat history
-            st.session_state.messages.append({"role": "user", "content": prompt})
-            
-            # Display user message
-            with st.chat_message("user"):
-                st.markdown(prompt)
-            
-            # Generate assistant response
-            with st.chat_message("assistant"):
-                with st.spinner("Thinking..."):
-                    # Fetch data from Supabase
-                    documents = fetch_data_from_supabase(supabase_client, table_name)
-                    
-                    if documents:
-                        #st.info(f"📊 Retrieved {len(documents)} documents from database")
-                        
-                        # Retrieve relevant context using simple keyword matching
-                        context = simple_keyword_match(prompt, documents)
-                        
-                        # Generate response
-                        response = generate_response(gemini_model, prompt, context)
-                        
-                        st.markdown(response)
-                        
-                        # Show retrieved context in expander
-                       # with st.expander("View Retrieved Context"):
-                        #    st.text(context)
-                    else:
-                        response = "No documents found in the database. Please check your table name and ensure it contains data."
-                        st.markdown(response)
-            
-            # Add assistant response to chat history
-            st.session_state.messages.append({"role": "assistant", "content": response})
+    model, supabase_client = initialize_clients(gemini_api_key, supabase_url, supabase_key)
 
-# Footer
+    if model and supabase_client:
+
+        for m in st.session_state.messages:
+            with st.chat_message(m["role"]):
+                st.markdown(m["content"])
+
+        if prompt := st.chat_input("Ask me anything…"):
+            st.session_state.messages.append({"role": "user", "content": prompt})
+
+            with st.chat_message("assistant"):
+                with st.spinner("Thinking with memory…"):
+                    docs = fetch_documents(supabase_client, table_name)
+                    context = retrieve_context(prompt, docs)
+
+                    response = generate_chat_response(model, prompt, context, st.session_state.messages)
+                    st.markdown(response)
+                    st.session_state.messages.append({"role": "assistant", "content": response})
+
+                with st.expander("🔍 View Retrieved Context"):
+                    st.text(context)
+
 st.divider()
-st.markdown("""
-### 📝 Database Schema Notes:
-- Ensure your Supabase table has a column with text content (e.g., 'content', 'text', or 'description')
-- This lightweight version uses keyword matching instead of embeddings (lower memory usage)
-- The agent will search across all rows in the specified table
-""")
+st.caption("⚡ Powered by Gemini + Supabase + Streamlit")
