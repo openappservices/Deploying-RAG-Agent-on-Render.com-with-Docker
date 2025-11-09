@@ -3,8 +3,6 @@ import google.generativeai as genai
 from supabase import create_client, Client
 import os
 from typing import List, Dict
-import numpy as np
-from sentence_transformers import SentenceTransformer
 
 # Configuration
 st.set_page_config(page_title="RAG Agent", page_icon="🤖", layout="wide")
@@ -64,11 +62,6 @@ def initialize_clients(_gemini_key, _supabase_url, _supabase_key):
         st.error(f"Error initializing clients: {str(e)}")
         return None, None
 
-@st.cache_resource
-def load_embedding_model():
-    """Load sentence transformer model for embeddings"""
-    return SentenceTransformer('all-MiniLM-L6-v2')
-
 def fetch_data_from_supabase(supabase: Client, table: str, query: str = None) -> List[Dict]:
     """Fetch data from Supabase table"""
     try:
@@ -83,38 +76,30 @@ def fetch_data_from_supabase(supabase: Client, table: str, query: str = None) ->
         st.error(f"Error fetching data: {str(e)}")
         return []
 
-def create_embeddings(texts: List[str], model: SentenceTransformer) -> np.ndarray:
-    """Create embeddings for texts"""
-    return model.encode(texts)
-
-def retrieve_relevant_context(query: str, documents: List[Dict], embedding_model: SentenceTransformer, top_k: int = 3) -> str:
-    """Retrieve most relevant documents based on query"""
+def simple_keyword_match(query: str, documents: List[Dict], top_k: int = 5) -> str:
+    """Simple keyword matching without embeddings (memory efficient)"""
     if not documents:
         return "No documents found in the database."
     
-    # Assuming documents have a 'content' or 'text' field
-    # Adjust field name based on your schema
-    doc_texts = []
+    query_words = set(query.lower().split())
+    scored_docs = []
+    
     for doc in documents:
         # Try common field names
         text = doc.get('content') or doc.get('text') or doc.get('description') or str(doc)
-        doc_texts.append(text)
+        text_lower = text.lower()
+        
+        # Count matching words
+        score = sum(1 for word in query_words if word in text_lower)
+        
+        if score > 0:
+            scored_docs.append((score, text))
     
-    # Create embeddings
-    query_embedding = embedding_model.encode([query])[0]
-    doc_embeddings = embedding_model.encode(doc_texts)
+    # Sort by score and get top k
+    scored_docs.sort(reverse=True, key=lambda x: x[0])
+    top_docs = [text for _, text in scored_docs[:top_k]]
     
-    # Calculate cosine similarity
-    similarities = np.dot(doc_embeddings, query_embedding) / (
-        np.linalg.norm(doc_embeddings, axis=1) * np.linalg.norm(query_embedding)
-    )
-    
-    # Get top k documents
-    top_indices = np.argsort(similarities)[-top_k:][::-1]
-    
-    relevant_docs = [doc_texts[i] for i in top_indices if similarities[i] > 0.1]  # Threshold
-    
-    return "\n\n".join(relevant_docs) if relevant_docs else "No relevant context found."
+    return "\n\n".join(top_docs) if top_docs else "No relevant documents found."
 
 def generate_response(model, query: str, context: str) -> str:
     """Generate response using Gemini with retrieved context"""
@@ -153,7 +138,6 @@ else:
     gemini_model, supabase_client = initialize_clients(gemini_api_key, supabase_url, supabase_key)
     
     if gemini_model and supabase_client:
-        embedding_model = load_embedding_model()
         
         # Display chat messages
         for message in st.session_state.messages:
@@ -178,8 +162,8 @@ else:
                     if documents:
                         st.info(f"📊 Retrieved {len(documents)} documents from database")
                         
-                        # Retrieve relevant context
-                        context = retrieve_relevant_context(prompt, documents, embedding_model)
+                        # Retrieve relevant context using simple keyword matching
+                        context = simple_keyword_match(prompt, documents)
                         
                         # Generate response
                         response = generate_response(gemini_model, prompt, context)
@@ -201,6 +185,6 @@ st.divider()
 st.markdown("""
 ### 📝 Database Schema Notes:
 - Ensure your Supabase table has a column with text content (e.g., 'content', 'text', or 'description')
+- This lightweight version uses keyword matching instead of embeddings (lower memory usage)
 - The agent will search across all rows in the specified table
-- Adjust the `top_k` parameter in the code to retrieve more/fewer documents
 """)
