@@ -50,16 +50,38 @@ with st.sidebar:
 def initialize_clients(_gemini_key, _supabase_url, _supabase_key):
     """Initialize Gemini and Supabase clients"""
     try:
+        # Debug: Show if keys are present (not the actual keys)
+        st.info(f"🔑 Gemini Key present: {bool(_gemini_key and len(_gemini_key) > 0)}")
+        st.info(f"🔑 Gemini Key length: {len(_gemini_key) if _gemini_key else 0}")
+        st.info(f"🔑 Supabase URL present: {bool(_supabase_url and len(_supabase_url) > 0)}")
+        st.info(f"🔑 Supabase Key present: {bool(_supabase_key and len(_supabase_key) > 0)}")
+        
         # Configure Gemini
-        genai.configure(api_key=_gemini_key)
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        if not _gemini_key or len(_gemini_key.strip()) == 0:
+            raise ValueError("Gemini API key is empty or not provided")
+        
+        genai.configure(api_key=_gemini_key.strip())
+        model = genai.GenerativeModel('gemini-pro')
+        
+        # Test the model
+        try:
+            test_response = model.generate_content("Hello")
+            st.success("✅ Gemini API connected successfully!")
+        except Exception as gemini_error:
+            st.error(f"Gemini API test failed: {str(gemini_error)}")
+            raise
         
         # Initialize Supabase
-        supabase: Client = create_client(_supabase_url, _supabase_key)
+        if not _supabase_url or not _supabase_key:
+            raise ValueError("Supabase credentials are missing")
+            
+        supabase: Client = create_client(_supabase_url.strip(), _supabase_key.strip())
+        st.success("✅ Supabase connected successfully!")
         
         return model, supabase
     except Exception as e:
-        st.error(f"Error initializing clients: {str(e)}")
+        st.error(f"❌ Error initializing clients: {str(e)}")
+        st.error(f"Error type: {type(e).__name__}")
         return None, None
 
 def fetch_data_from_supabase(supabase: Client, table: str, query: str = None) -> List[Dict]:
