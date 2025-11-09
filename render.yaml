@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: rag-agent
+    env: docker
+    region: oregon
+    plan: starter
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: TABLE_NAME
+        value: documents
+      - key: PORT
+        value: 8501
+    healthCheckPath: /_stcore/health
