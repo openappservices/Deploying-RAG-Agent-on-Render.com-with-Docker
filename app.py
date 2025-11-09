@@ -52,7 +52,7 @@ def initialize_clients(_gemini_key, _supabase_url, _supabase_key):
     try:
         # Configure Gemini
         genai.configure(api_key=_gemini_key)
-        model = genai.GenerativeModel('gemini-pro')
+        model = genai.GenerativeModel("gemini-1.5-flash")
         
         # Initialize Supabase
         supabase: Client = create_client(_supabase_url, _supabase_key)
